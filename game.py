@@ -1,5 +1,7 @@
-import random
-import termcolor
+from collections import defaultdict
+from random import shuffle
+from termcolor import colored
+from itertools import chain
 
 
 class Tile:
@@ -10,9 +12,9 @@ class Tile:
 
     def __str__(self):
         if self.color:
-            return termcolor.colored(f"[{self.number}]", self.color)
+            return colored(f"[{self.number}]", self.color)
         else:
-            return termcolor.colored("[J]", "white")
+            return colored("[J]", "white")
 
 
 class Set:
@@ -28,23 +30,28 @@ class Set:
 class Player:
     def __init__(self, id):
         self.id = id
-        self.hand = set()
+        self.hand_numbers = defaultdict(set)
+        self.hand_colors = defaultdict(set)
 
     def add_to_hand(self, tile):
-        self.hand.add(tile)
+        self.hand_numbers[tile.number].add(tile)
+        self.hand_colors[tile.color].add(tile)
 
     def remove_from_hand(self, tile):
-        self.hand.remove(tile)
+        self.hand_numbers[tile.number].remove(tile)
+        self.hand_colors[tile.color].remove(tile)
 
 
 class Game:
-    def __init__(self, num_players):
-        self.tiles = set()
-        self.unused_tiles = None
-        self.played_tiles = set()
+    def __init__(self, num_players, starting_player=1):
+        self.unused_tiles_numbers = defaultdict(set)
+        self.unused_tiles_colors = defaultdict(set)
+        self.played_tiles_numbers = defaultdict(set)
+        self.played_tiles_colors = defaultdict(set)
         self.sets = []
         self.num_players = num_players
         self.players = {i: Player(i) for i in range(1, num_players + 1)}
+        self.turn = starting_player
 
         self._setup_game()
 
@@ -52,26 +59,39 @@ class Game:
         for _ in range(2):
             for number in range(1, 14):
                 for color in ["light_red", "light_yellow", "light_cyan", "black"]:
-                    self.tiles.add(Tile(color, number))
+                    tile = Tile(color, number)
+                    self.unused_tiles_numbers[number].add(tile)
+                    self.unused_tiles_colors[color].add(tile)
 
-        self.tiles.update([Tile(None, None, True) for _ in range(2)])
+        for _ in range(2):
+            joker = Tile(None, None, True)
+            self.unused_tiles_numbers[-1].add(joker)
+            self.unused_tiles_colors["white"].add(joker)
 
     def _setup_game(self):
         self._generate_tiles()
-        tiles_list = list(self.tiles)
-        random.shuffle(tiles_list)
+        tiles_list = list(chain.from_iterable(self.unused_tiles_numbers.values()))
+        shuffle(tiles_list)
 
         for _ in range(14):
             for i in range(1, self.num_players + 1):
                 tile = tiles_list.pop()
                 self.players[i].add_to_hand(tile)
+                if tile.is_joker:
+                    self.unused_tiles_numbers[-1].remove(tile)
+                    self.unused_tiles_colors["white"].remove(tile)
+                else:
+                    self.unused_tiles_numbers[tile.number].remove(tile)
+                    self.unused_tiles_colors[tile.color].remove(tile)
 
-        self.unused_tiles = set(tiles_list)
+    def take_turn(self):
+        pass
 
     def display_game(self):
         for id, player in self.players.items():
             print(f"Player {id}:", end="")
-            for tile in player.hand:
+            hand = list(chain.from_iterable(player.hand_numbers.values()))
+            for tile in hand:
                 print(f" {tile}", end="")
             print()
 
@@ -80,7 +100,8 @@ class Game:
             print(set)
 
         print("Pool:", end="")
-        for tile in self.unused_tiles:
+        pool_tiles = list(chain.from_iterable(self.unused_tiles_numbers.values()))
+        for tile in pool_tiles:
             print(f" {tile}", end="")
 
 
