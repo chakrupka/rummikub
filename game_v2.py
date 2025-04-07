@@ -1,5 +1,6 @@
 from collections import Counter, defaultdict
 from random import shuffle
+import time
 from termcolor import colored, cprint
 
 
@@ -8,7 +9,7 @@ class Tile:
         self.color = color
         self.number = number
         self.is_joker = is_joker
-        self.code = f"{color[0]}{number}" if not is_joker else "j"
+        self.code = f"{color[0]}{number}" if self.color != "white" else "j"
 
     def __repr__(self):
         return self.__str__()
@@ -50,6 +51,7 @@ class BoardController:
 
     def allocate_tiles(self, players):
         all_tiles = list(self.unused_all)
+        shuffle(all_tiles)
         for _ in range(14):
             for player in players:
                 tile = all_tiles.pop()
@@ -61,22 +63,17 @@ class PlayHelper:
     def __init__(self, player, board):
         self.player = player
         self.board = board
-
-        self.unused_dict = defaultdict(lambda: defaultdict(list))
-        self.unused_jokers = []
+        self.tile_dict = defaultdict(list)
         self.tile_counts = defaultdict(int)
-
+        self.all_tiles = set()
+        self.board_tiles = set()
         self._build_dict()
-        self.valid_sets = self._gather_valid_sets()
 
     def _build_dict(self):
         for tile in self.player.hand:
-            if tile.is_joker:
-                self.unused_jokers.append(tile)
-                self.tile_counts["j"] += 1
-            else:
-                self.unused_dict[tile.color][tile.number].append(tile)
-                self.tile_counts[tile.code] += 1
+            self.tile_dict[tile.code].append(tile)
+            self.tile_counts[tile.code] += 1
+            self.all_tiles.add(tile)
 
         for tile_set in self.board.sets:
             for tile in tile_set:
@@ -88,7 +85,7 @@ class PlayHelper:
                                 p_tile.color == tile.color
                                 and p_tile.number == tile.number
                             ):
-                                self.unused_jokers.append(tile)
+                                self.tile_dict["j"].append(tile)
                                 self.tile_counts["j"] += 1
                                 replacable = True
                                 break
@@ -103,137 +100,174 @@ class PlayHelper:
                                 p_tile.color not in used_colors
                                 and p_tile.number == tile.number
                             ):
-                                self.unused_jokers.append(tile)
+                                self.tile_dict["j"].append(tile)
                                 self.tile_counts["j"] += 1
                                 replacable = True
                                 break
 
                     if not replacable:
-                        self.unused_dict[tile.color][tile.number].append(tile)
+                        self.tile_dict[tile.code].append(tile)
                         self.tile_counts[tile.code] += 1
                 else:
-                    self.unused_dict[tile.color][tile.number].append(tile)
+                    self.tile_dict[tile.code].append(tile)
                     self.tile_counts[tile.code] += 1
 
-    def _gather_valid_sets(self):
-        valid_sets = []
+                self.all_tiles.add(tile)
+                self.board_tiles.add(tile)
 
-        def find_runs(tile):
-            runs = []
-            run = [tile]
-            jokers_used = 0
-            joker_info = []
-            next_num = tile.number + 1
-
-            while self.unused_dict[tile.color][next_num] or jokers_used < len(
-                self.unused_jokers
-            ):
-                if self.unused_dict[tile.color][next_num]:
-                    run.append(self.unused_dict[tile.color][next_num][-1])
-                else:
-                    joker = self.unused_jokers[-1]
-                    joker_info.append([tile.color, next_num])
-                    run.append(joker)
-                    jokers_used += 1
-
-                if len(run) >= 3:
-                    runs.append(
-                        TileSet(run, "run", joker_info if jokers_used else None)
-                    )
-
-                next_num += 1
-
-            return runs
-
-        def find_groups(tile):
-            groups = []
-            group = [tile]
-            jokers_used = 0
-            joker_info = []
-            colors = ["red", "yellow", "cyan", "black"]
-
-            for color in colors:
-                if color != tile.color and (
-                    self.unused_dict[color][tile.number]
-                    or jokers_used < len(self.unused_jokers)
-                ):
-                    if self.unused_dict[color][tile.number]:
-                        group.append(self.unused_dict[color][tile.number][-1])
-                    else:
-                        joker = self.unused_jokers[-1]
-                        joker_info.append([color, tile.number])
-                        group.append(joker)
-                        jokers_used += 1
-
-                    if len(group) >= 3:
-                        groups.append(
-                            TileSet(group, "run", joker_info if jokers_used else None)
-                        )
-
-            return groups
-
-        for color in ["red", "yellow", "cyan", "black"]:
-            for number in list(self.unused_dict[color].keys()):
-                for tile in self.unused_dict[color][number]:
-                    if tile.number <= 11:
-                        valid_sets.extend(find_runs(tile))
-                    valid_sets.extend(find_groups(tile))
-
-        return valid_sets
-
-    def first_turn(self):
-        print("\nValid set:", end=" ")
-        for tile_set in self.valid_sets:
-            print(f"{tile_set} | ", end="")
-
+    def turn(self):
         best_play = []
         max_tiles_played = 0
-        all_board_tiles = set(
-            [tile for tile_set in self.board.sets for tile in tile_set]
-        )
-        counts = defaultdict(int)
+        start_time = time.time()
+        last_print_time = start_time
+        steps = 0
+        memo = {}
 
-        def backtrack(tile_sets, current_sets):
-            nonlocal best_play, max_tiles_played, all_board_tiles, counts
-            if not tile_sets:
+        def backtrack(tiles, tile_sets, counts):
+            nonlocal best_play, max_tiles_played, steps, memo, last_print_time
+
+            tiles_key = tuple(sorted(tile.code for tile in tiles))
+            if tiles_key in memo:
                 return
 
-            current_board_tiles = set()
-            tiles_in_play = set()
-            for tile_set in current_sets:
-                for tile in tile_sets:
-                    if tile in all_board_tiles:
-                        current_board_tiles.add(tile)
-                    tiles_in_play.add(tile)
+            current_board_tiles = []
+            tiles_in_play = []
+            for tile_set in tile_sets:
+                for tile in tile_set:
+                    if tile in self.board_tiles:
+                        current_board_tiles.append(tile)
+                    tiles_in_play.append(tile)
 
-            if len(current_board_tiles) == len(all_board_tiles):
+            result = 0
+            if len(current_board_tiles) == len(self.board_tiles):
                 if len(tiles_in_play) > max_tiles_played:
-                    best_play = [tile_set for tile_set in current_sets]
+                    best_play = [tile_set for tile_set in tile_sets]
                     max_tiles_played = len(tiles_in_play)
+                    result = len(tiles_in_play)
+                    memo[tiles_key] = result
 
-            for index, tile_set in enumerate(tile_sets):
-                counts_prev = counts.copy()
-                counts_temp = counts.copy()
-                for tile_set in tile_sets:
-                    duplicates = False
-                    for tile in tile_set:
-                        if counts_temp[tile.code] + 1 > self.tile_counts[tile.code]:
-                            duplicates = True
-                            break
-                        counts_temp[tile.code] += 1
-                    if not duplicates:
-                        counts = counts_temp
-                        backtrack(
-                            tile_sets[min(0, index - 1) : index]
-                            + tile_sets[index + 1 :],
-                            current_sets + [tile_set],
-                        )
-                counts = counts_prev
+            if len(tiles_in_play) + len(tiles) <= max_tiles_played:
+                return
 
-            return
+            for tile in tiles:
+                if time.time() - last_print_time >= 5.0:
+                    print(
+                        f"Time elapsed: {time.time() - start_time:.0f}, steps: {steps}"
+                    )
+                    last_print_time = time.time()
+                if tile.color != "white":
+                    if tile.number <= 11:
+                        run = [tile]
+                        next_num = tile.number + 1
+                        joker_info = []
+                        next_code = f"{tile.color[0]}{next_num}"
+                        temp_tiles = tiles.copy()
+                        temp_tiles.remove(tile)
+                        counts_temp = counts.copy()
+                        counts_temp[tile.code] -= 1
 
-        backtrack(self.valid_sets, [])
+                        while counts_temp[next_code] or counts_temp["j"]:
+                            steps += 1
+                            tile_index = -1
+                            if counts_temp[next_code]:
+                                if (
+                                    counts_temp[next_code] == 1
+                                    and len(self.tile_dict[next_code]) == 2
+                                ):
+                                    if self.tile_dict[next_code][0] in temp_tiles:
+                                        tile_index = 0
+                                run.append(self.tile_dict[next_code][tile_index])
+                                temp_tiles.remove(self.tile_dict[next_code][tile_index])
+                                counts_temp[next_code] -= 1
+                            else:
+                                if (
+                                    counts_temp["j"] == 1
+                                    and len(self.tile_dict["j"]) == 2
+                                ):
+                                    if self.tile_dict["j"][0] in temp_tiles:
+                                        tile_index = 0
+                                run.append(self.tile_dict["j"][tile_index])
+                                temp_tiles.remove(self.tile_dict["j"][tile_index])
+                                joker_info.append([tile.color, next_num])
+                                counts_temp["j"] -= 1
 
+                            if len(run) >= 3:
+                                backtrack(
+                                    temp_tiles,
+                                    tile_sets
+                                    + [
+                                        TileSet(
+                                            run,
+                                            "run",
+                                            joker_info if joker_info else None,
+                                        )
+                                    ],
+                                    counts_temp,
+                                )
+
+                            next_num += 1
+                            next_code = f"{tile.color[0]}{next_num}"
+
+                    group = [tile]
+                    joker_info = []
+                    temp_tiles = tiles.copy()
+                    temp_tiles.remove(tile)
+                    counts_temp = counts.copy()
+                    counts_temp[tile.code] -= 1
+
+                    for color in ["red", "yellow", "cyan", "black"]:
+                        steps += 1
+                        next_code = f"{color[0]}{tile.number}"
+                        if next_code != tile.code and (
+                            counts_temp[next_code] or counts_temp["j"]
+                        ):
+                            tile_index = -1
+                            if counts_temp[next_code]:
+                                if (
+                                    counts_temp[next_code] == 1
+                                    and len(self.tile_dict[next_code]) == 2
+                                ):
+                                    if self.tile_dict[next_code][0] in temp_tiles:
+                                        tile_index = 0
+                                group.append(self.tile_dict[next_code][tile_index])
+                                temp_tiles.remove(self.tile_dict[next_code][tile_index])
+                                counts_temp[next_code] -= 1
+                            else:
+                                if (
+                                    counts_temp["j"] == 1
+                                    and len(self.tile_dict["j"]) == 2
+                                ):
+                                    if self.tile_dict["j"][0] in temp_tiles:
+                                        tile_index = 0
+                                group.append(self.tile_dict["j"][tile_index])
+                                temp_tiles.remove(self.tile_dict["j"][tile_index])
+                                joker_info.append([color, tile.number])
+                                counts_temp["j"] -= 1
+
+                            if len(group) >= 3:
+                                backtrack(
+                                    temp_tiles,
+                                    tile_sets
+                                    + [
+                                        TileSet(
+                                            group,
+                                            "group",
+                                            joker_info if joker_info else None,
+                                        )
+                                    ],
+                                    counts_temp,
+                                )
+                steps += 1
+
+        backtrack(self.all_tiles, [], self.tile_counts)
+        print(f"Took {time.time() - start_time:.4f} seconds")
+
+        for tile_set in best_play:
+            for tile in tile_set:
+                if tile.is_joker:
+                    color, number = tile_set.joker_info.pop()
+                    tile.color = color
+                    tile.number = number
         return best_play
 
 
@@ -258,14 +292,14 @@ class Game:
 
     def display_game(self):
         for index, player in enumerate(self.players):
-            print(f"Player {index}:", end=" ")
+            print(f"Player {index + 1}:", end=" ")
             for tile in sorted(player.hand, key=lambda tile: (tile.color, tile.number)):
                 print(tile, end="")
             print()
 
         print("\nBoard:", end=" ")
         for tile_set in self.board.sets:
-            print(f"{tile_set} | ", end="")
+            print(f"{tile_set}|", end="")
 
         print("\n\nPool:", end=" ")
         for tile in sorted(
@@ -278,19 +312,18 @@ class Game:
         cprint(f"\n> PLAYER {self.player_turn + 1}", attrs=["bold", "underline"])
         player = self.players[self.player_turn]
         play_helper = PlayHelper(player, self.board)
-        if not player.has_played:
-            play = play_helper.first_turn()
+        best_play = play_helper.turn()
 
-        if play:
+        if best_play:
+            print("best_play:", best_play)
             cprint(f"\nPLAYS", attrs=["bold"], color="green", end=" ")
-            if not player.has_played:
-                for tile_set in play:
-                    self.board.sets.append(tile_set)
-                    for tile in tile_set.tiles:
+            self.board.sets = best_play
+            for tile_set in best_play:
+                for tile in tile_set:
+                    if tile in player.hand:
                         print(f"{tile}", end="")
                         player.remove_from_hand(tile)
-                print("\n")
-                player.has_played = True
+            print("\n")
         else:
             tiles_list = list(self.board.unused_all)
             shuffle(tiles_list)
@@ -305,6 +338,11 @@ class Game:
 
     def setup_game(self):
         self.board.allocate_tiles(self.players)
+        # for i in range(8, 12):
+        #     self.players[0].hand.add(Tile("red", i))
+        #     if i == 9:
+        #         self.players[0].hand.add(Tile("cyan", i))
+        #         self.players[0].hand.add(Tile("yellow", i))
         cprint(f"> BEGIN GAME", attrs=["bold", "underline"])
         self.display_game()
 
