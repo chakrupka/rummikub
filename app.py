@@ -1,7 +1,10 @@
 from flask import Flask, request
 from solver import optimal_play
+from flask_cors import CORS
+import collections
 
 app = Flask(__name__)
+CORS(app)
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -9,24 +12,21 @@ def api():
     if request.method == "GET":
         return "<p>Rummikub Optimal Play Solver</p>"
     data = request.get_json()
-    print(data)
-    board_tiles = tiles_to_tuples(data["board"])
-    rack_tiles = tiles_to_tuples(data["rack"])
+    board_tiles = collections.Counter(tiles_to_tuples(data["board"]))
+    rack_tiles = collections.Counter(tiles_to_tuples(data["rack"]))
     best_play, played_tiles = optimal_play(board_tiles, rack_tiles)
     formatted_sets, formatted_tiles = format_response(best_play, played_tiles)
-
     return {"best_play": formatted_sets, "from_rack": formatted_tiles}
 
 
 def tiles_to_tuples(tiles):
-    tupled_tiles = []
-    for tile in tiles:
-        if tile[0] != "J":
-            tupled_tiles.append((tile[0], tile[1]))
+    out = []
+    for color, num in tiles:
+        if num == 0:
+            out.append("J")
         else:
-            tupled_tiles.append("J")
-
-    return tupled_tiles
+            out.append((color, num))
+    return out
 
 
 def format_response(play, tiles):

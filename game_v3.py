@@ -174,7 +174,8 @@ class Game:
         best_play, played_tiles = optimal_play(
             self.board_tiles, self.player_hands[self.player_turn]
         )
-        if best_play:
+
+        if played_tiles:
             cprint(f"\nPLAYS", attrs=["bold"], color="green", end=" ")
             self.board_sets = best_play
             for tile in played_tiles:
