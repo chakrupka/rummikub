@@ -2,6 +2,8 @@
 Optimal play solver for Rummikub.
 
 ## Info
+[Website link](https://rops.onrender.com)
+
 Built with Python + Flask by [Cha](https://www.linkedin.com/in/cha-krupka)
 
 Frontend is [here](https://github.com/chakrupka/rummikub-ui)
