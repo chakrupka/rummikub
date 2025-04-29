@@ -107,7 +107,8 @@ def optimal_play(board_tiles, rack_tiles):
 
     status = prob.solve(pl.PULP_CBC_CMD(msg=False))
     if status != pl.LpStatusOptimal:
-        raise Exception("No optimal solution found")
+        print("No optimal solution found")
+        return [], []
     print("Primary objective value:", pl.value(prob.objective))
 
     tiles_in_sets = collections.Counter()

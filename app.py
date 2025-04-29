@@ -14,7 +14,10 @@ def api():
     data = request.get_json()
     board_tiles = collections.Counter(tiles_to_tuples(data["board"]))
     rack_tiles = collections.Counter(tiles_to_tuples(data["rack"]))
+
     best_play, played_tiles = optimal_play(board_tiles, rack_tiles)
+    if not played_tiles:
+        return {"best_play": [], "from_rack": []}
     formatted_sets, formatted_tiles = format_response(best_play, played_tiles)
     return {"best_play": formatted_sets, "from_rack": formatted_tiles}
 
