@@ -42,7 +42,7 @@ for tileset in list(SETS):
         inject_jokers(tileset, 2)
 
 
-def optimal_play(board_tiles, rack_tiles):
+def optimal_play(board_sets, rack_tiles):
     global SETS, TILES
 
     tile2idx = {tile: i for i, tile in enumerate(TILES)}
@@ -64,6 +64,9 @@ def optimal_play(board_tiles, rack_tiles):
             v[tile2idx[tile]] = copies
         return v
 
+    board_tiles = collections.Counter(
+        [tile for tile_set in board_sets for tile in tile_set]
+    )
     table_vec = counter_to_vector(board_tiles)
     rack_vec = counter_to_vector(rack_tiles)
 
@@ -84,14 +87,10 @@ def optimal_play(board_tiles, rack_tiles):
         prob += (lhs == rhs), f"balance_{i}"
         prob += y[i] <= rack_vec[i], f"rack_{i}"
 
-    w = collections.Counter()
+    grouping_counts = collections.Counter(board_sets)
+    w = {}
     for j, set_tuple in idx2set.items():
-        copies_possible = (
-            min(board_tiles[tile] for tile in set_tuple)
-            if all(tile in board_tiles for tile in set_tuple)
-            else 0
-        )
-        w[j] = copies_possible
+        w[j] = grouping_counts.get(set_tuple, 0)
 
     z = pl.LpVariable.dicts(
         name="z", indices=set2idx.values(), lowBound=0, upBound=2, cat="Integer"
@@ -144,7 +143,6 @@ def color_tile(tile):
 
 class Game:
     def __init__(self, num_players):
-        self.board_tiles = collections.Counter()
         self.board_sets = []
         self.unturned_tiles = []
         self.num_players = num_players
@@ -172,7 +170,7 @@ class Game:
     def take_turn(self):
         cprint(f"\n> PLAYER {self.player_turn}", attrs=["bold", "underline"])
         best_play, played_tiles = optimal_play(
-            self.board_tiles, self.player_hands[self.player_turn]
+            self.board_sets, self.player_hands[self.player_turn]
         )
 
         if played_tiles:
@@ -180,7 +178,6 @@ class Game:
             self.board_sets = best_play
             for tile in played_tiles:
                 cprint(color_tile(tile), end="")
-                self.board_tiles[tile] += 1
                 self.player_hands[self.player_turn][tile] -= 1
                 if not self.player_hands[self.player_turn][tile]:
                     del self.player_hands[self.player_turn][tile]
@@ -220,8 +217,8 @@ class Game:
         print("\n")
 
 
-game = Game(4)
-s = input("Take turn?")
-while s == "":
-    game.take_turn()
-    s = input("Take turn?")
+# game = Game(4)
+# s = input("Take turn?")
+# while s == "":
+#     game.take_turn()
+#     s = input("Take turn?")
